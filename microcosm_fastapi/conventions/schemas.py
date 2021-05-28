@@ -22,13 +22,7 @@ class EnhancedBaseModel(BaseModel):
     ) -> Any:
         # The reason that we're overriding the Pydantic's BaseModel is so that
         # we can create our own Config parameters such as 'use_enum_names'
-
-        # 'use_enum_names' is bespoke pydantic config parameter used to indicate when
-        # enum names (keys) should/shouldn't be used.
-        # Because it is more common to want to use enum names, consumers of the enum
-        # base class that don't want to use enum names have to explicitly
-        # put `use_enum_names` = False in their cls.Config.
-        if isinstance(value, Enum) and getattr(cls.Config, "use_enum_names", True):
+        if isinstance(value, Enum) and getattr(cls.Config, 'use_enum_names', False):
             return value.name
 
         return super()._get_value(
@@ -42,7 +36,6 @@ class EnhancedBaseModel(BaseModel):
             exclude_none,
         )
 
-
 class BaseSchema(EnhancedBaseModel):
     class Config:
         # Hydrate SQLAlchemy models
@@ -55,6 +48,7 @@ class BaseSchema(EnhancedBaseModel):
         # Allow "Any" to be used
         arbitrary_types_allowed = True
 
+        use_enum_names = True
 
 class HrefSchema(EnhancedBaseModel):
     href: AnyHttpUrl
