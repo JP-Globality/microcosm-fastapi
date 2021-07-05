@@ -33,6 +33,7 @@ def configure_crud(graph, namespace: Namespace, mappings: Dict[Operation, Callab
         method_mapping = {
             "GET": graph.app.get,
             "POST": graph.app.post,
+            "PUT": graph.app.put,
             "PATCH": graph.app.patch,
             "DELETE": graph.app.delete,
             "OPTIONS": graph.app.options,

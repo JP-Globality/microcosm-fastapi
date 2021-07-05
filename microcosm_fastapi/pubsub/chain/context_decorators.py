@@ -5,6 +5,7 @@ from inspect import (
     iscoroutinefunction,
     signature,
 )
+from contextlib import contextmanager
 
 from microcosm_pubsub.chain.decorators import BINDS, EXTRACTS
 from microcosm_pubsub.chain.exceptions import ContextKeyNotFound
@@ -65,6 +66,7 @@ def save_to_context_async(context, func, assigned=DEFAULT_ASSIGNED):
     Decorate a function - save to a context (dictionary) the function return value
     if the function is marked by @extracts decorator
     """
+    # breakpoint()
     extracts = getattr(func, EXTRACTS, None)
     if not extracts:
         return func
@@ -77,7 +79,7 @@ def save_to_context_async(context, func, assigned=DEFAULT_ASSIGNED):
             context[name] = value[index]
         return value
 
-    if iscoroutinefunction(func):
+    if iscoroutinefunction(func) or (hasattr(func, 'async_call') and func.async_call):
         @wraps(func, assigned=assigned + WRAPPER_ASSIGNMENTS)
         async def decorate(*args, **kwargs):
             value = await func(*args, **kwargs)
@@ -98,9 +100,9 @@ def save_to_context_by_func_name_async(context, func, assigned=DEFAULT_ASSIGNED)
     if the function is not signed by EXTRACTS and it's name starts with "extract_"
     """
     if (
-        hasattr(func, EXTRACTS) or
-        not hasattr(func, "__name__") or
-        not func.__name__.startswith(EXTRACT_PREFIX)
+            hasattr(func, EXTRACTS) or
+            not hasattr(func, "__name__") or
+            not func.__name__.startswith(EXTRACT_PREFIX)
     ):
         return func
     name = func.__name__[len(EXTRACT_PREFIX):]

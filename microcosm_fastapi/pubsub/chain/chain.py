@@ -1,5 +1,5 @@
 from inspect import iscoroutinefunction
-
+import sys
 from microcosm_pubsub.chain.chain import Chain
 
 from microcosm_fastapi.pubsub.chain.context_decorators import (
@@ -49,7 +49,20 @@ class ChainAsync(Chain):
 
             if iscoroutinefunction(func):
                 res = await func()
+            elif hasattr(link, '__call__') and hasattr(func, 'async_call') and func.async_call:
+                # we check link.__call__ as the self.apply_decorators changes
+                # the ability to check the func method call, resulting in iscoroutinefunction(func)
+                # being False when we actually have a coroutinefuncion
+
+                # TODO - workout why we end up with a list -> e.g [<coroutine object ExtractSuggestionGoalDescriptors.__call__ at 0x10fa248c0>]
+                # and hence we have to do this hacky stuff
+                res1 = func()
+                res2 = res1[0]
+                res = await res2
             else:
                 res = func()
 
         return res
+
+    def from_coroutine():
+        return sys._getframe(2).f_code.co_flags & 0x380

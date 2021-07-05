@@ -42,7 +42,6 @@ def configure_landing(graph):   # noqa: C901
         #for operation, ns, rule, func in iter_endpoints(graph, matches):
         #    versions.append(ns.version)
         # TODO: Add version
-        print("TODO: Add version")
 
         return versions
 
