@@ -2,18 +2,19 @@
 Audit log support for FastAPI routes.
 
 """
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from collections import namedtuple
 # from contextlib import contextmanager
-# from distutils.util import strtobool
+from distutils.util import strtobool
 # from functools import wraps
-# from json import loads
+from json import loads
+from json.decoder import JSONDecodeError
 from logging import DEBUG, getLogger
-# from traceback import format_exc
-# from uuid import UUID
-#
-# from flask import current_app, g, request
-# from inflection import underscore
+import json
+from traceback import format_exc
+from uuid import UUID
+
+from inflection import underscore
 from microcosm.api import defaults, typed
 from microcosm.metadata import Metadata
 from microcosm.config.types import boolean
@@ -22,12 +23,12 @@ import time
 
 from fastapi import Request
 from functools import partial
-# from microcosm_flask.errors import (
-#     extract_context,
-#     extract_error_message,
-#     extract_include_stack_trace,
-#     extract_status_code,
-# )
+from microcosm_fastapi.errors import (
+    extract_context,
+    extract_error_message,
+    extract_include_stack_trace,
+    extract_status_code,
+)
 
 
 DEFAULT_INCLUDE_REQUEST_BODY = 400
@@ -44,17 +45,30 @@ AuditOptions = namedtuple("AuditOptions", [
 ])
 
 
-# SKIP_LOGGING = "_microcosm_flask_skip_audit_logging"
-#
-#
-# def is_uuid(value):
-#     try:
-#         UUID(value)
-#         return True
-#     except Exception:
-#         return False
-#
-#
+SKIP_LOGGING = "_microcosm_flask_skip_audit_logging"
+
+
+def is_uuid(value):
+    try:
+        UUID(value)
+        return True
+    except Exception:
+        return False
+
+
+class async_iterator_wrapper:
+    def __init__(self, obj):
+        self._it = iter(obj)
+    def __aiter__(self):
+        return self
+    async def __anext__(self):
+        try:
+            value = next(self._it)
+        except StopIteration:
+            raise StopAsyncIteration
+        return value
+
+
 # def skip_logging(func):
 #     """
 #     Decorate a function so logging will be skipped.
@@ -64,13 +78,12 @@ AuditOptions = namedtuple("AuditOptions", [
 #     return func
 #
 #
-# def should_skip_logging(func):
-#     """
-#     Should we skip logging for this handler?
-#
-#     """
-#     disabled = strtobool(request.headers.get("x-request-nolog", "false"))
-#     return disabled or getattr(func, SKIP_LOGGING, False)
+def should_skip_logging(request: Request):
+    """
+    Should we skip logging for this handler?
+
+    """
+    return strtobool(request.headers.get("x-request-nolog", "false"))
 #
 #
 # @contextmanager
@@ -112,14 +125,45 @@ AuditOptions = namedtuple("AuditOptions", [
 #             return _audit_request(options, func, None, *args, **kwargs)
 #
 #     return wrapper
-#
-#
+
+
+class RequestWrapper:
+    def __init__(self, request: Request):
+        self.request = request
+        self.method = request.method
+        self.url = request.url
+
+        self.json_module = json
+
+    @property
+    def content_length(self):
+        content_length = self.request.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                return max(0, int(content_length))
+            except (ValueError, TypeError):
+                pass
+
+        return None
+
+    async def get_json(
+            self,
+    ) -> Optional[Any]:
+
+        data = None
+        try:
+            data = await self.request.json()
+        except JSONDecodeError:
+            pass
+        return data
+
+
 class RequestInfo:
     """
     Capture of key information for requests.
 
     """
-    def __init__(self, options: AuditOptions, request: Request, request_context: Dict[str, Any], app_metadata: Metadata):
+    def __init__(self, options: AuditOptions, request: RequestWrapper, request_context: Dict[str, Any], app_metadata: Metadata):
         self.options = options
         self.app_metadata = app_metadata
         self.operation = "XXX"
@@ -205,7 +249,7 @@ class RequestInfo:
             else:
                 logger.debug(self.to_dict())
 
-    def capture_request(self):
+    async def capture_request(self):
         if not self.app_metadata.debug:
             # only capture request body on debug
             return
@@ -222,174 +266,104 @@ class RequestInfo:
             # don't capture request body if it's too large
             return
 
-        if not request.get_json(force=True, silent=True):
+        if not await self.request.get_json():
             # only capture request body if json
             return
 
-        self.request_body = request.get_json(force=True)
-    #
-    # def capture_response(self, response):
-    #     self.success = True
-    #
-    #     body, self.status_code, self.response_headers = parse_response(response)
-    #
-    #     if not current_app.debug:
-    #         # only capture responsebody on debug
-    #         return
-    #
-    #     if not self.options.include_response_body:
-    #         # only capture response body if requested
-    #         return
-    #
-    #     if not body:
-    #         # only capture request body if there is one
-    #         return
-    #
-    #     if (
-    #             self.options.include_response_body is not True and
-    #             len(body) >= self.options.include_response_body
-    #     ):
-    #         # don't capture response body if it's too large
-    #         return
-    #
-    #     try:
-    #         self.response_body = loads(body)
-    #     except (TypeError, ValueError):
-    #         # not json
-    #         pass
-    #
-    # def capture_error(self, error):
-    #     self.error = error
-    #     self.status_code = extract_status_code(error)
-    #     self.success = 0 < self.status_code < 400
-    #     include_stack_trace = extract_include_stack_trace(error)
-    #     self.stack_trace = format_exc(limit=10) if (not self.success and include_stack_trace) else None
-    #
-    # def post_process_request_body(self, dct):
-    #     if g.get("hide_body") or not self.request_body:
-    #         return
-    #
-    #     for name, new_name in g.get("show_request_fields", {}).items():
-    #         try:
-    #             value = self.request_body.pop(name)
-    #             self.request_body[new_name] = value
-    #         except KeyError:
-    #             pass
-    #
-    #     for field in g.get("hide_request_fields", []):
-    #         try:
-    #             del self.request_body[field]
-    #         except KeyError:
-    #             pass
-    #
-    #     dct.update(
-    #         request_body=self.request_body,
-    #     )
-    #
-    # def post_process_response_body(self, dct):
-    #     if g.get("hide_body") or not self.response_body:
-    #         return
-    #
-    #     for name, new_name in g.get("show_response_fields", {}).items():
-    #         try:
-    #             value = self.response_body.pop(name)
-    #             self.response_body[new_name] = value
-    #         except KeyError:
-    #             pass
-    #
-    #     for field in g.get("hide_response_fields", []):
-    #         try:
-    #             del self.response_body[field]
-    #         except KeyError:
-    #             pass
-    #
-    #     dct.update(
-    #         response_body=self.response_body,
-    #     )
-    #
-    # def post_process_response_headers(self, dct):
-    #     """
-    #     Rewrite X-<>-Id header into audit logs.
-    #     """
-    #     if not self.response_headers:
-    #         return
-    #
-    #     for key, value in self.response_headers.items():
-    #         parts = key.split("-")
-    #         if len(parts) != 3:
-    #             continue
-    #         if parts[0] != "X":
-    #             continue
-    #         if parts[-1] != "Id":
-    #             continue
-    #
-    #         dct["{}_id".format(underscore(parts[1]))] = value
-#
-#
-# def _audit_request(options, func, request_context, *args, **kwargs):  # noqa: C901
-#     """
-#     Run a request function under audit.
-#
-#     """
-#     logger = getLogger("audit")
-#
-#     request_info = RequestInfo(options, func, request_context)
-#     response = None
-#
-#     request_info.capture_request()
-#     try:
-#         # process the request
-#         with elapsed_time(request_info.timing):
-#             response = func(*args, **kwargs)
-#     except Exception as error:
-#         request_info.capture_error(error)
-#         raise
-#     else:
-#         request_info.capture_response(response)
-#         return response
-#     finally:
-#         if not should_skip_logging(func):
-#             request_info.log(logger)
-#
-#
-# def parse_response(response):
-#     """
-#     Parse a Flask response into a body, a status code, and headers
-#
-#     The returned value from a Flask view could be:
-#         * a tuple of (response, status) or (response, status, headers)
-#         * a Response object
-#         * a string
-#     """
-#     if isinstance(response, tuple):
-#         if len(response) > 2:
-#             return response[0], response[1], response[2]
-#         elif len(response) > 1:
-#             return response[0], response[1], {}
-#     try:
-#         return response.data, response.status_code, response.headers
-#     except AttributeError:
-#         return response, 200, {}
-#
-#
-# def create_audit_middleware(graph):
-#     options = AuditOptions(
-#         include_request_body=graph.config.audit.include_request_body,
-#         include_response_body=graph.config.audit.include_response_body,
-#         include_path=graph.config.audit.include_path,
-#         include_query_string=graph.config.audit.include_query_string,
-#         log_as_debug=graph.config.audit.log_as_debug,
-#     )
-#     return _audit_request(options, func, graph.request_context, *args, **kwargs)
+        self.request_body = self.request.get_json()
 
-# async def audit_request(request: Request, call_next):
-#     # logger = getLogger("audit")
-#
-#     start_time = time.time()
-#     response = await call_next(request)
-#     process_time = time.time() - start_time
-#     response.headers["X-Process-Time"] = str(process_time)
-#     return response
+    async def capture_response(self, response):
+        self.success = True
+
+        body, self.status_code, self.response_headers = await parse_response(response)
+
+        if not self.app_metadata.debug:
+            # only capture responsebody on debug
+            return
+
+        if not self.options.include_response_body:
+            # only capture response body if requested
+            return
+
+        if not body:
+            # only capture request body if there is one
+            return
+
+        if (
+                self.options.include_response_body is not True and
+                len(body) >= self.options.include_response_body
+        ):
+            # don't capture response body if it's too large
+            return
+
+        try:
+            self.response_body = loads(body)
+        except (TypeError, ValueError):
+            # not json
+            pass
+
+    def capture_error(self, error):
+        self.error = error
+        self.status_code = extract_status_code(error)
+        self.success = 0 < self.status_code < 400
+        include_stack_trace = extract_include_stack_trace(error)
+        self.stack_trace = format_exc(limit=10) if (not self.success and include_stack_trace) else None
+
+    def post_process_request_body(self, dct):
+        if not self.request_body:
+            return
+
+        dct.update(
+            request_body=self.request_body,
+        )
+
+    def post_process_response_body(self, dct):
+        if not self.response_body:
+            return
+
+        dct.update(
+            response_body=self.response_body,
+        )
+
+    def post_process_response_headers(self, dct):
+        """
+        Rewrite X-<>-Id header into audit logs.
+        """
+        if not self.response_headers:
+            return
+
+        for key, value in self.response_headers.items():
+            parts = key.split("-")
+            if len(parts) != 3:
+                continue
+            if parts[0] != "X":
+                continue
+            if parts[-1] != "Id":
+                continue
+
+            dct["{}_id".format(underscore(parts[1]))] = value
+
+
+async def parse_response(response):
+    """
+    Parse a FastAPI response into a body, a status code, and headers
+
+    """
+    # Taken from SO: https://stackoverflow.com/questions/60778279/fastapi-middleware-peeking-into-responses
+    # Consuming FastAPI response and grabbing body here
+    resp_body = [section async for section in response.__dict__['body_iterator']]
+
+    # Repairing FastAPI response
+    response.__setattr__('body_iterator', async_iterator_wrapper(resp_body))
+
+    # Formatting response body for logging
+    try:
+        body = json.loads(resp_body[0].decode())
+    except:
+        body = str(resp_body)
+
+    return body, response.status_code, response.headers
+
 
 def create_audit_request(graph, options):
     async def audit_request(graph, options: AuditOptions, request: Request, call_next):
@@ -398,35 +372,29 @@ def create_audit_request(graph, options):
 
         """
         logger = getLogger("audit")
-        print("xyz")
-
-        breakpoint()
-
-        start_time = time.time()
-        response = await call_next(request)
-        process_time = time.time() - start_time
-        response.headers["X-Process-Time"] = str(process_time)
-        return response
 
         request_context = graph.request_context(request)
-        request_info = RequestInfo(options, request, request_context, graph.metadata)
+        request_wrapper = RequestWrapper(request)
+        request_info = RequestInfo(options, request_wrapper, request_context, graph.metadata)
         response = None
 
-        request_info.capture_request()
+        await request_info.capture_request()
         request_info.log(logger)
-        # try:
-        #     # process the request
-        #     with elapsed_time(request_info.timing):
-        #         response = func(*args, **kwargs)
-        # except Exception as error:
-        #     request_info.capture_error(error)
-        #     raise
-        # else:
-        #     request_info.capture_response(response)
-        #     return response
-        # finally:
-        #     if not should_skip_logging(func):
-        #         request_info.log(logger)
+
+        try:
+            # process the request
+            with elapsed_time(request_info.timing):
+                # response = func(*args, **kwargs)
+                response = await call_next(request)
+        except Exception as error:
+            request_info.capture_error(error)
+            raise
+        else:
+            await request_info.capture_response(response)
+            return response
+        finally:
+            if not should_skip_logging(request):
+                request_info.log(logger)
 
     return partial(audit_request, graph, options)
 
@@ -444,25 +412,22 @@ def configure_audit_middleware(graph):
     Configure audit middleware
 
     """
+    # options = AuditOptions(
+    #     include_request_body=graph.config.audit_middleware.include_request_body,
+    #     include_response_body=graph.config.audit_middleware.include_response_body,
+    #     include_path=graph.config.audit_middleware.include_path,
+    #     # include_query_string=graph.config.audit_middleware.include_query_string,
+    #     include_query_string=True,
+    #     log_as_debug=graph.config.audit_middleware.log_as_debug,
+    # )
+
     options = AuditOptions(
         include_request_body=graph.config.audit_middleware.include_request_body,
         include_response_body=graph.config.audit_middleware.include_response_body,
-        include_path=graph.config.audit_middleware.include_path,
-        include_query_string=graph.config.audit_middleware.include_query_string,
-        log_as_debug=graph.config.audit_middleware.log_as_debug,
+        include_path=True,
+        # include_query_string=graph.config.audit_middleware.include_query_string,
+        include_query_string=True,
+        log_as_debug=True,
     )
+
     graph.app.middleware("http")(create_audit_request(graph, options))
-
-
-    # enable_audit = graph.config.audit_middleware.enable_audit
-
-    # if enable_audit:
-    # options = AuditOptions(
-    #     include_request_body=graph.config.audit.include_request_body,
-    #     include_response_body=graph.config.audit.include_response_body,
-    #     include_path=graph.config.audit.include_path,
-    #     include_query_string=graph.config.audit.include_query_string,
-    #     log_as_debug=graph.config.audit.log_as_debug,
-    # )
-    # graph.app.middleware("http")(audit_request)
-    # return _audit_request(graph, options, func, graph.request_context, *args, **kwargs)
