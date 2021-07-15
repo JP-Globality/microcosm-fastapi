@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from microcosm.api import defaults, typed
 from microcosm_fastapi.errors import ErrorSchema
+from microcosm.config.types import boolean
 
 
 class FastAPIWrapper(FastAPI):

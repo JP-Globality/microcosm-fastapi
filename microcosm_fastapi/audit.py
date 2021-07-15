@@ -4,21 +4,25 @@ Audit log support for FastAPI routes.
 """
 from typing import Dict, Any, Optional
 from collections import namedtuple
+# from contextlib import contextmanager
 from distutils.util import strtobool
+# from functools import wraps
 from json import loads
 from json.decoder import JSONDecodeError
-from logging import getLogger
+from logging import DEBUG, getLogger
 import json
+from traceback import format_exc
 from uuid import UUID
-from functools import partial
+
 from inflection import underscore
-
-from fastapi import Request
-
 from microcosm.api import defaults, typed
 from microcosm.metadata import Metadata
 from microcosm.config.types import boolean
 from microcosm_logging.timing import elapsed_time
+import time
+
+from fastapi import Request
+from functools import partial
 from microcosm_fastapi.errors import (
     extract_context,
     extract_error_message,
@@ -67,6 +71,15 @@ class async_iterator_wrapper:
         return value
 
 
+# def skip_logging(func):
+#     """
+#     Decorate a function so logging will be skipped.
+#
+#     """
+#     setattr(func, SKIP_LOGGING, True)
+#     return func
+#
+#
 def should_skip_logging(request: Request):
     """
     Should we skip logging for this handler?
@@ -114,7 +127,7 @@ class RequestInfo:
     Capture of key information for requests.
 
     """
-    def __init__(self, options: AuditOptions, request: Request, request_context: Dict[str, Any], app_metadata: Metadata):
+    def __init__(self, options: AuditOptions, request: RequestWrapper, request_context: Dict[str, Any], app_metadata: Metadata):
         self.options = options
         self.app_metadata = app_metadata
         self.operation = None
@@ -391,12 +404,22 @@ def configure_audit_middleware(graph):
     Configure audit middleware
 
     """
+    # options = AuditOptions(
+    #     include_request_body=graph.config.audit_middleware.include_request_body,
+    #     include_response_body=graph.config.audit_middleware.include_response_body,
+    #     include_path=graph.config.audit_middleware.include_path,
+    #     # include_query_string=graph.config.audit_middleware.include_query_string,
+    #     include_query_string=True,
+    #     log_as_debug=graph.config.audit_middleware.log_as_debug,
+    # )
+
     options = AuditOptions(
         include_request_body=graph.config.audit_middleware.include_request_body,
         include_response_body=graph.config.audit_middleware.include_response_body,
-        include_path=graph.config.audit_middleware.include_path,
-        include_query_string=graph.config.audit_middleware.include_query_string,
-        log_as_debug=graph.config.audit_middleware.log_as_debug,
+        include_path=True,
+        # include_query_string=graph.config.audit_middleware.include_query_string,
+        include_query_string=True,
+        log_as_debug=True,
     )
 
     graph.app.middleware("http")(create_audit_request(graph, options))
