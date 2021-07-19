@@ -5,8 +5,8 @@ from enum import Enum, unique
 
 @unique
 class OperationType(Enum):
-    NODE_PATTERN = "NODE_PATTERN"
-    EDGE_PATTERN = "EDGE_PATTERN"
+    NODE_PATTERN = "{subject}.{operation}.{version}"
+    EDGE_PATTERN = "{subject}.{operation}.{object_}.{version}"
 
 
 @dataclass

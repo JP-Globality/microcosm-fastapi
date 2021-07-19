@@ -29,6 +29,12 @@ from microcosm_fastapi.errors import (
     extract_include_stack_trace,
     extract_status_code,
 )
+import functools
+import functools
+from fastapi import FastAPI, Request
+from makefun import wraps
+from inspect import signature, Parameter
+from copy import deepcopy, copy
 
 
 DEFAULT_INCLUDE_REQUEST_BODY = 400
@@ -114,19 +120,17 @@ class RequestInfo:
     Capture of key information for requests.
 
     """
-    def __init__(self, options: AuditOptions, request: RequestWrapper, request_context: Dict[str, Any], app_metadata: Metadata):
+    def __init__(self, options: AuditOptions, func, operation_name, request: RequestWrapper, request_context: Dict[str, Any], app_metadata: Metadata):
         self.options = options
         self.app_metadata = app_metadata
-        self.operation = "XXX"
-        self.func = "XXX"
+        self.operation = operation_name
+        self.func = func.__name__
         self.method = request.method
         self.args = request.query_params
 
         self.request = request
         self.path = request.url.path
         self.query = request.url.query
-
-        breakpoint()
 
         self.request_context = request_context
         self.timing = dict()
@@ -310,38 +314,88 @@ async def parse_response(response):
     return body, response.status_code, response.headers
 
 
-def create_audit_request(graph, options):
-    async def audit_request(graph, options: AuditOptions, request: Request, call_next):
-        """
-        Audit request
+# def _audit_request(fn):
+#
+#     @functools.wraps(fn)
+#     async def audit_request(graph, options: AuditOptions, request: Request, call_next):
+#         """
+#         Audit request
+#
+#         """
+#         # Goal: get the function name and get the operation name
+#         # We could use request state to pass back information that can be used in this logger
+#         logger = getLogger("audit")
+#
+#         request_context = graph.request_context(request)
+#         request_wrapper = RequestWrapper(request)
+#         request_info = RequestInfo(options, request_wrapper, request_context, graph.metadata)
+#         response = None
+#
+#         await request_info.capture_request()
+#         try:
+#             # process the request
+#             with elapsed_time(request_info.timing):
+#                 # response = func(*args, **kwargs)
+#                 response = await call_next(request)
+#         except Exception as error:
+#             request_info.capture_error(error)
+#             raise
+#         else:
+#             await request_info.capture_response(response)
+#             return response
+#         finally:
+#             if not should_skip_logging(request):
+#                 request_info.log(logger)
+#
+#     return audit_request
 
-        """
-        # Goal: get the function name and get the operation name
-        # We could use request state to pass back information that can be used in this logger
-        logger = getLogger("audit")
 
-        request_context = graph.request_context(request)
-        request_wrapper = RequestWrapper(request)
-        request_info = RequestInfo(options, request_wrapper, request_context, graph.metadata)
-        response = None
+async def _audit_request(graph, request: Request, options: AuditOptions, func, operation_name:str,  *args, **kwargs):
+    """
+    Audit request
 
-        await request_info.capture_request()
-        try:
-            # process the request
-            with elapsed_time(request_info.timing):
-                # response = func(*args, **kwargs)
-                response = await call_next(request)
-        except Exception as error:
-            request_info.capture_error(error)
-            raise
-        else:
-            await request_info.capture_response(response)
-            return response
-        finally:
-            if not should_skip_logging(request):
-                request_info.log(logger)
+    """
+    # Goal: get the function name and get the operation name
+    # We could use request state to pass back information that can be used in this logger
+    logger = getLogger("audit")
 
-    return partial(audit_request, graph, options)
+    request_context = graph.request_context(request)
+    request_wrapper = RequestWrapper(request)
+    request_info = RequestInfo(options, func, operation_name, request_wrapper, request_context, graph.metadata)
+    response = None
+
+    await request_info.capture_request()
+    try:
+        # process the request
+        with elapsed_time(request_info.timing):
+            response = await func(*args, **kwargs)
+    except Exception as error:
+        request_info.capture_error(error)
+        raise
+    else:
+        await request_info.capture_response(response)
+        return response
+    finally:
+        if not should_skip_logging(request):
+            request_info.log(logger)
+
+
+def maybe_modify_signature(sig):
+    """
+    Maybe modifies signature of function to include the request:Request argument
+    """
+    new_sig = deepcopy(sig)
+    params = list(new_sig.parameters.values())
+    has_request_param = False
+    for param in params:
+        if param.name == 'request':
+            has_request_param = True
+
+    if not has_request_param:
+        params.append(Parameter('request', kind=Parameter.POSITIONAL_OR_KEYWORD, annotation=Request))
+        return new_sig.replace(parameters=params), has_request_param
+
+    return new_sig, has_request_param
 
 
 @defaults(
@@ -352,26 +406,69 @@ def create_audit_request(graph, options):
     include_query_string=typed(type=boolean, default_value=False),
     log_as_debug=typed(type=boolean, default_value=False),
 )
-def configure_audit_middleware(graph):
+def configure_audit(graph):
     """
-    Configure audit middleware
+    Configure audit
+
+    A lot of this function does dynamic adding/removing of the request:Request parameter
+    which Starlette provides. The reason for this is that we need the request object
+    inside our audit function but sometimes the actual controller being wrapped doesn't
+    require the request argument. The way that Starlette decides if it needs to give you the
+    request argument is by looking at the function signature so the functionality below is all
+    about injecting the request argument inside the signature and then removing it later on
+    when the actual controller function is called hence the so called "magic".
 
     """
-    # options = AuditOptions(
-    #     include_request_body=graph.config.audit_middleware.include_request_body,
-    #     include_response_body=graph.config.audit_middleware.include_response_body,
-    #     include_path=graph.config.audit_middleware.include_path,
-    #     # include_query_string=graph.config.audit_middleware.include_query_string,
-    #     include_query_string=True,
-    #     log_as_debug=graph.config.audit_middleware.log_as_debug,
-    # )
+    def _audit(func, operation_name):
+        sig = signature(func)
+        new_sig, already_contains_request_arg = maybe_modify_signature(sig)
 
-    options = AuditOptions(
-        include_request_body=graph.config.audit_middleware.include_request_body,
-        include_response_body=graph.config.audit_middleware.include_response_body,
-        include_path=True,
-        include_query_string=True,
-        log_as_debug=False,
-    )
+        options = AuditOptions(
+            include_request_body=graph.config.audit.include_request_body,
+            include_response_body=graph.config.audit.include_response_body,
+            include_path=True,
+            include_query_string=True,
+            log_as_debug=False,
+        )
 
-    graph.app.middleware("http")(create_audit_request(graph, options))
+        if already_contains_request_arg:
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs):
+                # We need to leave the request argument inside args/kwargs
+                request = None
+                for arg in args:
+                    if isinstance(arg, Request):
+                        request = arg
+
+                if request is None:
+                    for key, value in kwargs.items():
+                        if key == 'request' and isinstance(value, Request):
+                            request = kwargs['request']
+
+                print(f"request.url: {request.url}")
+                return await _audit_request(graph, request, options, func, operation_name, *args, **kwargs)
+
+        else:
+            @wraps(func, new_sig=new_sig)
+            async def wrapper(*args, **kwargs):
+                # We need to remove the request argument from args/kwargs
+                request = None
+                new_args = []
+                for arg in args:
+                    if not isinstance(arg, Request):
+                        new_args.append(arg)
+                    else:
+                        request = arg
+
+                new_kwargs = copy(kwargs)
+                if request is None:
+                    for key, value in new_kwargs.items():
+                        if key == 'request' and isinstance(value, Request):
+                            request = kwargs['request']
+                            del kwargs['request']
+
+                print(f"request.url: {request.url}")
+                return await _audit_request(graph, request, options, func, operation_name, *args, **kwargs)
+
+        return wrapper
+    return _audit

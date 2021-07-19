@@ -12,6 +12,7 @@ class Namespace:
     subject: Any
     version: Optional[str] = None
     prefix: str = "api"
+    object_: Optional[Any] = None
 
     def path_for_operation(self, operation: Operation):
         """
@@ -22,6 +23,7 @@ class Namespace:
         (GET, EDGE_PATTERN) -> v1/pizza/pizza_id
 
         """
+        # TODO - rework this to better fit with NODE & EDGE patterns
         if operation.pattern == OperationType.NODE_PATTERN:
             return "/" + "/".join(self.path_prefix)
         elif operation.pattern == OperationType.EDGE_PATTERN:
@@ -55,3 +57,22 @@ class Namespace:
         """
         host_name = self.extract_hostname_from_request(request)
         return f'{host_name}{self.path_for_operation(operation).format(**kwargs)}'
+
+    def generate_operation_name_for_logging(self, operation: Operation):
+        """
+        Generate a logging name (useful for logging)
+
+        """
+        if operation.pattern.name == "EDGE_PATTERN":
+            return operation.pattern.value.format(
+                subject=self.subject,
+                operation=operation.name,
+                object_=self.object,
+                version=self.version
+            )
+        else:
+            return operation.pattern.value.format(
+                subject=self.subject,
+                operation=operation.name,
+                version=self.version
+            )
