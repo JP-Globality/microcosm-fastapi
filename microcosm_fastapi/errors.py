@@ -1,4 +1,5 @@
-from typing import Optional, List
+from typing import Optional, List, Any
+from fastapi import HTTPException
 
 from microcosm_fastapi.conventions.schemas import BaseSchema
 

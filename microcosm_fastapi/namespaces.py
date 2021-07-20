@@ -75,37 +75,14 @@ class Namespace:
         host_name = self.extract_hostname_from_request(request)
         return f'{host_name}{self.path_for_operation(operation).format(**kwargs)}'
 
-    def generate_operation_name_for_logging(self, operation: Operation):
+    def generate_operation_name_for_logging(self, operation: OperationInfo):
         """
         Generate a logging name (useful for logging)
 
         """
-        # TODO - copy implementation from microcosm_flask (endpoint_for)
-        if operation.pattern.name == "EDGE_PATTERN":
-            # return operation.pattern.value.format(
-            #     subject=self.subject,
-            #     operation=operation.name,
-            #     object_=self.object,
-            #     version=self.version
-            # )
-            # TODO - temporary solution whilst we don't have
-            # object_ correctly implemented
-            return operation.pattern.value.format(
-                subject=self.subject_name,
-                operation=operation.name,
-                object_=self.subject_name,
-                version=self.version
-            )
-        else:
-            return operation.pattern.value.format(
-                subject=self.subject,
-                operation=operation.name,
-                version=self.version
-            )
-
-        # return operation.value.pattern.format(
-        #     subject=self.subject_name,
-        #     operation=operation.value.name,
-        #     object_=self.object_name if self.object_ else None,
-        #     version=self.version or "v1",
-        # )
+        return operation.pattern.value.format(
+            subject=self.subject_name,
+            operation=operation.name,
+            object_=self.object_name if self.object_ else None,
+            version=self.version or "v1",
+        )
