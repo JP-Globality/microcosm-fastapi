@@ -84,6 +84,8 @@ class RequestWrapper:
         self.url = request.url
         self.query_params = request.query_params
 
+        self.state = request.state
+
         self.json_module = json
 
     @property
@@ -117,16 +119,15 @@ class RequestInfo:
     def __init__(self, options: AuditOptions, request: RequestWrapper, request_context: Dict[str, Any], app_metadata: Metadata):
         self.options = options
         self.app_metadata = app_metadata
-        self.operation = "XXX"
-        self.func = "XXX"
+        self.operation = None
+        self.func = None
         self.method = request.method
         self.args = request.query_params
 
         self.request = request
         self.path = request.url.path
         self.query = request.url.query
-
-        breakpoint()
+        self.request_state = request.state
 
         self.request_context = request_context
         self.timing = dict()
@@ -288,6 +289,14 @@ class RequestInfo:
 
             dct["{}_id".format(underscore(parts[1]))] = value
 
+    def set_operation_and_func_name(self):
+        """
+        Extracting and setting operation and function name from request state
+
+        """
+        self.func = self.request_state.func_name
+        self.operation = self.request_state.operation_name
+
 
 async def parse_response(response):
     """
@@ -329,9 +338,13 @@ def create_audit_request(graph, options):
         try:
             # process the request
             with elapsed_time(request_info.timing):
-                # response = func(*args, **kwargs)
                 response = await call_next(request)
+                # We can only set the operation and func name after the
+                # decorator in charge of binding this to request state has
+                # been executed
+                request_info.set_operation_and_func_name()
         except Exception as error:
+            request_info.set_operation_and_func_name()
             request_info.capture_error(error)
             raise
         else:

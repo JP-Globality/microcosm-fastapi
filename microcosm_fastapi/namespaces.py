@@ -64,10 +64,18 @@ class Namespace:
 
         """
         if operation.pattern.name == "EDGE_PATTERN":
+            # return operation.pattern.value.format(
+            #     subject=self.subject,
+            #     operation=operation.name,
+            #     object_=self.object,
+            #     version=self.version
+            # )
+            # TODO - temporary solution whilst we don't have
+            # object_ correctly implemented
             return operation.pattern.value.format(
-                subject=self.subject,
+                subject=self.subject_name,
                 operation=operation.name,
-                object_=self.object,
+                object_=self.subject_name,
                 version=self.version
             )
         else:
