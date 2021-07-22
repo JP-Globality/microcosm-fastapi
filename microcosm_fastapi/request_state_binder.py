@@ -8,6 +8,8 @@ from makefun import wraps
 from inspect import signature, Parameter
 from copy import deepcopy, copy
 
+from microcosm_fastapi.error_adapter import ErrorAdapter
+import traceback
 
 def maybe_modify_signature(sig):
     """
@@ -64,7 +66,17 @@ def configure_request_state_binder(graph):
                 # Bind operation name and func name to request state
                 request.state.func_name = func.__name__
                 request.state.operation_name = operation_name
-                return await func(*args, **kwargs)
+
+                # Eventually want to move out this error handling/adapting
+                # into a separate decorator
+                request.state.error = None
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as error:
+                    request.state.error = error
+                    request.state.traceback = traceback.format_exc(limit=10)
+                    adapter = ErrorAdapter(error)
+                    raise adapter()
 
         else:
             @wraps(func, new_sig=new_sig)
@@ -88,7 +100,17 @@ def configure_request_state_binder(graph):
                 # Bind operation name and func name to request state
                 request.state.func_name = func.__name__
                 request.state.operation_name = operation_name
-                return await func(*args, **kwargs)
+
+                # Eventually want to move out this error handling/adapting
+                # into a separate decorator
+                request.state.error = None
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as error:
+                    request.state.error = error
+                    request.state.traceback = traceback.format_exc(limit=10)
+                    adapter = ErrorAdapter(error)
+                    raise adapter()
 
         return wrapper
     return request_state_binder

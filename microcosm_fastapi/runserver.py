@@ -8,7 +8,7 @@ def main(entrypoint, graph):
     @command()
     @option("--host", default="127.0.0.1")
     @option("--port", default=default_port)
-    @option("--access-log", default=False)
+    @option("--access-log", default=True)
     def _runserver(host, port, access_log):
         """
         Launch the local debugging server

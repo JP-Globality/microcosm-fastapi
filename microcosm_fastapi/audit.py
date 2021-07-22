@@ -31,6 +31,7 @@ from microcosm_fastapi.errors import (
 )
 
 
+
 DEFAULT_INCLUDE_REQUEST_BODY = 400
 DEFAULT_INCLUDE_RESPONSE_BODY = 400
 ERROR_MESSAGE_LIMIT = 2048
@@ -180,13 +181,7 @@ class RequestInfo:
     def log(self, logger):
         if self.status_code == 500:
             # something actually went wrong; investigate
-            dct = self.to_dict()
-
-            if self.app_metadata.debug or self.app_metadata.testing:
-                message = dct.pop("message")
-                logger.warning(message, extra=dct, exc_info=True)
-            else:
-                logger.warning(dct)
+            logger.warning(self.to_dict())
         else:
             # usually log at INFO; a raised exception can be an error or
             # expected behavior (e.g. 404)
@@ -253,7 +248,7 @@ class RequestInfo:
         self.status_code = extract_status_code(error)
         self.success = 0 < self.status_code < 400
         include_stack_trace = extract_include_stack_trace(error)
-        self.stack_trace = format_exc(limit=10) if (not self.success and include_stack_trace) else None
+        self.stack_trace = self.request_state.traceback if (not self.success and include_stack_trace) else None
 
     def post_process_request_body(self, dct):
         if not self.request_body:
@@ -294,8 +289,15 @@ class RequestInfo:
         Extracting and setting operation and function name from request state
 
         """
-        self.func = self.request_state.func_name
-        self.operation = self.request_state.operation_name
+        try:
+            self.func = self.request_state.func_name
+        except AttributeError:
+            self.func = None
+
+        try:
+            self.operation = self.request_state.operation_name
+        except AttributeError:
+            self.operation = None
 
 
 async def parse_response(response):
@@ -325,16 +327,18 @@ def create_audit_request(graph, options):
         Audit request
 
         """
-        # Goal: get the function name and get the operation name
-        # We could use request state to pass back information that can be used in this logger
         logger = getLogger("audit")
 
         request_context = graph.request_context(request)
         request_wrapper = RequestWrapper(request)
         request_info = RequestInfo(options, request_wrapper, request_context, graph.metadata)
+
+        # Sets op and func name to None to initialise the state values
+        request_info.set_operation_and_func_name()
         response = None
 
         await request_info.capture_request()
+
         try:
             # process the request
             with elapsed_time(request_info.timing):
@@ -344,11 +348,24 @@ def create_audit_request(graph, options):
                 # been executed
                 request_info.set_operation_and_func_name()
         except Exception as error:
+            # This shouldn't happen
             request_info.set_operation_and_func_name()
             request_info.capture_error(error)
             raise
         else:
-            await request_info.capture_response(response)
+            # This is where we deal with the errors as fastapi seems to swallow HTTPExceptionErrors
+            # so the except part of the clause above doesn't run
+            request_error = None
+            try:
+                request_error = request.state.error
+            except AttributeError:
+                pass
+
+            if request_error is not None:
+                request_info.capture_error(request_error)
+            else:
+                await request_info.capture_response(response)
+
             return response
         finally:
             if not should_skip_logging(request):
@@ -357,8 +374,10 @@ def create_audit_request(graph, options):
     return partial(audit_request, graph, options)
 
 
+
+
+
 @defaults(
-    enable_audit=typed(boolean, default_value=True),
     include_request_body=typed(type=int, default_value=DEFAULT_INCLUDE_REQUEST_BODY),
     include_response_body=typed(type=int, default_value=DEFAULT_INCLUDE_RESPONSE_BODY),
     include_path=typed(type=boolean, default_value=False),
@@ -370,21 +389,12 @@ def configure_audit_middleware(graph):
     Configure audit middleware
 
     """
-    # options = AuditOptions(
-    #     include_request_body=graph.config.audit_middleware.include_request_body,
-    #     include_response_body=graph.config.audit_middleware.include_response_body,
-    #     include_path=graph.config.audit_middleware.include_path,
-    #     # include_query_string=graph.config.audit_middleware.include_query_string,
-    #     include_query_string=True,
-    #     log_as_debug=graph.config.audit_middleware.log_as_debug,
-    # )
-
     options = AuditOptions(
         include_request_body=graph.config.audit_middleware.include_request_body,
         include_response_body=graph.config.audit_middleware.include_response_body,
-        include_path=True,
-        include_query_string=True,
-        log_as_debug=False,
+        include_path=graph.config.audit_middleware.include_path,
+        include_query_string=graph.config.audit_middleware.include_query_string,
+        log_as_debug=graph.config.audit_middleware.log_as_debug,
     )
 
     graph.app.middleware("http")(create_audit_request(graph, options))

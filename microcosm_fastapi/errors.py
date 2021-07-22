@@ -30,6 +30,17 @@ def extract_context(error):
     return getattr(error, "context", {"errors": []})
 
 
+def extract_retryable(error):
+    """
+    Extract a retryable status from an error.
+
+    It's not usually helpful to retry on an error, but it's useful to do so
+    when the application knows it might.
+
+    """
+    return getattr(error, "retryable", False)
+
+
 def extract_error_message(error):
     """
     Extract a useful message from an error.
