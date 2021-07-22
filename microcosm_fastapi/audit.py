@@ -4,14 +4,11 @@ Audit log support for FastAPI routes.
 """
 from typing import Dict, Any, Optional
 from collections import namedtuple
-# from contextlib import contextmanager
 from distutils.util import strtobool
-# from functools import wraps
 from json import loads
 from json.decoder import JSONDecodeError
-from logging import DEBUG, getLogger
+from logging import getLogger
 import json
-from traceback import format_exc
 from uuid import UUID
 
 from inflection import underscore
@@ -19,7 +16,6 @@ from microcosm.api import defaults, typed
 from microcosm.metadata import Metadata
 from microcosm.config.types import boolean
 from microcosm_logging.timing import elapsed_time
-import time
 
 from fastapi import Request
 from functools import partial
@@ -29,7 +25,6 @@ from microcosm_fastapi.errors import (
     extract_include_stack_trace,
     extract_status_code,
 )
-
 
 
 DEFAULT_INCLUDE_REQUEST_BODY = 400
