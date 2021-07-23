@@ -1,32 +1,18 @@
 """
-Audit log support for FastAPI routes.
+Request binder for func and operation name
 
 """
 import functools
 from fastapi import Request
 from makefun import wraps
-from inspect import signature, Parameter
-from copy import deepcopy, copy
 
-from microcosm_fastapi.error_adapter import ErrorAdapter
-import traceback
+from microcosm_fastapi.signature import extract_request_from_args, extract_request_from_kwargs, maybe_modify_signature
+from microcosm_fastapi.utils import bind_to_request_state
 
-def maybe_modify_signature(sig):
-    """
-    Maybe modifies signature of function to include the request:Request argument
-    """
-    new_sig = deepcopy(sig)
-    params = list(new_sig.parameters.values())
-    has_request_param = False
-    for param in params:
-        if param.name == 'request':
-            has_request_param = True
 
-    if not has_request_param:
-        params.append(Parameter('request', kind=Parameter.POSITIONAL_OR_KEYWORD, annotation=Request))
-        return new_sig.replace(parameters=params), has_request_param
-
-    return new_sig, has_request_param
+async def process_func(func, request, operation_name, *args, **kwargs):
+    bind_to_request_state(request, func_name=func.__name__, operation_name=operation_name)
+    return await func(*args, **kwargs)
 
 
 def configure_request_state_binder(graph):
@@ -46,71 +32,29 @@ def configure_request_state_binder(graph):
 
     """
     def request_state_binder(func, operation_name):
-        sig = signature(func)
-        new_sig, already_contains_request_arg = maybe_modify_signature(sig)
+        new_sig, already_contains_request_arg = maybe_modify_signature(func)
 
         if already_contains_request_arg:
+            # If the func args/kwargs already contain request, then we leave it in
             @functools.wraps(func)
             async def wrapper(*args, **kwargs):
-                # We need to leave the request argument inside args/kwargs
-                request = None
-                for arg in args:
-                    if isinstance(arg, Request):
-                        request = arg
+                new_args, request = extract_request_from_args(args)
 
                 if request is None:
-                    for key, value in kwargs.items():
-                        if key == 'request' and isinstance(value, Request):
-                            request = kwargs['request']
+                    new_kwargs, request = extract_request_from_kwargs(**kwargs)
 
-                # Bind operation name and func name to request state
-                request.state.func_name = func.__name__
-                request.state.operation_name = operation_name
-
-                # Eventually want to move out this error handling/adapting
-                # into a separate decorator
-                request.state.error = None
-                try:
-                    return await func(*args, **kwargs)
-                except Exception as error:
-                    request.state.error = error
-                    request.state.traceback = traceback.format_exc(limit=10)
-                    adapter = ErrorAdapter(error)
-                    raise adapter()
+                return await process_func(func, request, operation_name, new_args, new_kwargs)
 
         else:
+            # If the func args/kwargs don't already contain request, then we remove it
             @wraps(func, new_sig=new_sig)
             async def wrapper(*args, **kwargs):
-                # We need to remove the request argument from args/kwargs
-                request = None
-                new_args = []
-                for arg in args:
-                    if not isinstance(arg, Request):
-                        new_args.append(arg)
-                    else:
-                        request = arg
+                new_args, request = extract_request_from_args(args, remove_from_args=True)
 
-                new_kwargs = copy(kwargs)
                 if request is None:
-                    for key, value in new_kwargs.items():
-                        if key == 'request' and isinstance(value, Request):
-                            request = kwargs['request']
-                            del kwargs['request']
+                    new_kwargs, request = extract_request_from_kwargs(**kwargs, remove_from_kwargs=True)
 
-                # Bind operation name and func name to request state
-                request.state.func_name = func.__name__
-                request.state.operation_name = operation_name
-
-                # Eventually want to move out this error handling/adapting
-                # into a separate decorator
-                request.state.error = None
-                try:
-                    return await func(*args, **kwargs)
-                except Exception as error:
-                    request.state.error = error
-                    request.state.traceback = traceback.format_exc(limit=10)
-                    adapter = ErrorAdapter(error)
-                    raise adapter()
+                return await process_func(func, request, operation_name, new_args, new_kwargs)
 
         return wrapper
     return request_state_binder

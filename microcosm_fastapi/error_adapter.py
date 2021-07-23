@@ -3,7 +3,17 @@ from fastapi.responses import JSONResponse
 from typing import Any
 import functools
 
+import functools
+from fastapi import Request
+from makefun import wraps
+
+import traceback
+from microcosm_fastapi.signature import extract_request_from_args, extract_request_from_kwargs, maybe_modify_signature
+from microcosm_fastapi.utils import bind_to_request_state
+
+
 DEFAULT_SERVER_STATUS_CODE = 500
+
 
 class ErrorAdapter:
     def __init__(self, error: Any):
@@ -14,25 +24,42 @@ class ErrorAdapter:
         Converts a microcosm error into a http exception
 
         """
-        status_code = None
-        try:
-            status_code = self.error.status_code
-        except AttributeError:
-            pass
-        # return JSONResponse(status_code = self.error.status_code, content = {"error": str(self.error), "message": "Something critical happened"})
-        return HTTPException(status_code=status_code or DEFAULT_SERVER_STATUS_CODE)
+        return HTTPException(DEFAULT_SERVER_STATUS_CODE)
 
-# Currently not in use but we want to move the stuff from request_state_binder into
-# this function (just need to generalise the adding/removing/updating of the request:Request
-# argument first...
-def error_adapter(func):
-    @functools.wraps(func)
-    async def wrapper(*args, **kwargs):
-        try:
-            response = await func(*args, **kwargs)
-        except Exception as error:
-            adapter = ErrorAdapter(error)
-            raise adapter()
 
-        return response
-    return wrapper
+async def process_func(func, request, *args, **kwargs):
+    bind_to_request_state(request, error=None, traceback=None)
+    try:
+        return await func(*args, **kwargs)
+    except Exception as error:
+        bind_to_request_state(request, error=error, traceback=traceback.format_exc(limit=10))
+        adapter = ErrorAdapter(error)
+        raise adapter()
+
+
+def configure_error_adapter(graph):
+    def error_adapter(func):
+        new_sig, already_contains_request_arg = maybe_modify_signature(func)
+
+        if already_contains_request_arg:
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs):
+                new_args, request = extract_request_from_args(args)
+
+                if request is None:
+                    new_kwargs, request = extract_request_from_kwargs(**kwargs)
+
+                return await process_func(func, request, new_args, new_kwargs)
+
+        else:
+            @wraps(func, new_sig=new_sig)
+            async def wrapper(*args, **kwargs):
+                new_args, request = extract_request_from_args(args, remove_from_args=True)
+
+                if request is None:
+                    new_kwargs, request = extract_request_from_kwargs(**kwargs, remove_from_kwargs=True)
+
+                return await process_func(func, request, new_args, new_kwargs)
+
+        return wrapper
+    return error_adapter

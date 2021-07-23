@@ -243,7 +243,8 @@ class RequestInfo:
         self.status_code = extract_status_code(error)
         self.success = 0 < self.status_code < 400
         include_stack_trace = extract_include_stack_trace(error)
-        self.stack_trace = self.request_state.traceback if (not self.success and include_stack_trace) else None
+        self.stack_trace = getattr(self.request_state, 'traceback', None) \
+            if (not self.success and include_stack_trace) else None
 
     def post_process_request_body(self, dct):
         if not self.request_body:

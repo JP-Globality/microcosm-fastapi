@@ -1,7 +1,7 @@
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
-
+from fastapi.exception_handlers import http_exception_handler
 from microcosm_fastapi.errors import (
     extract_context,
     extract_error_message,
@@ -16,14 +16,20 @@ async def my_exception_handler(request: Request, exception):
     to fit in with existing microcosm conventions
 
     """
-    error = request.state.error
-    response_content = {
-        "code": extract_status_code(error),
-        "context": extract_context(error),
-        "message": extract_error_message(error),
-        "retryable": extract_retryable(error)
-    }
-    return JSONResponse(status_code=response_content["code"], content=response_content)
+    error = getattr(request.state, 'error', None)
+    if error is not None:
+        response_content = {
+            "code": extract_status_code(error),
+            "context": extract_context(error),
+            "message": extract_error_message(error),
+            "retryable": extract_retryable(error)
+        }
+        return JSONResponse(status_code=response_content["code"], content=response_content)
+    else:
+        # default exception flow
+        return await http_exception_handler(request, exception)
+
+
 
 
 def configure_global_exception_handler(graph):
