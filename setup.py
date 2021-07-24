@@ -25,16 +25,16 @@ setup(
         "fastapi",
         "uvicorn",
         "aiofiles",
-        "SQLAlchemy==1.4.0b2",
+        "SQLAlchemy>=1.4.0",
         "httpx",
         "click",
         "jinja2",
-        # @piercefreeman 02/05/2021 - pinned until 4.1 support is merged into mainline master
-        "sqlalchemy-utils @ git+https://github.com/slipovenko/sqlalchemy-utils.git@bb77995f7454931b5cdf3acab4fbb82602d8c16c",
+        "sqlalchemy-utils",
         # @piercefreeman 02/16/2021 - required until we refactor async code
         # into microcosm-postgres and microcosm-pubsub
         "microcosm-pubsub",
-        "microcosm-postgres",
+        "microcosm-postgres[encryption]>=2.0.0",
+        "asyncpg",
     ],
     setup_requires=[
         "nose>=1.3.7",
@@ -45,7 +45,7 @@ setup(
         "microcosm.factories": [
             "app = microcosm_fastapi.factories.fastapi:configure_fastapi",
             "postgres_async = microcosm_fastapi.database.postgres:configure_postgres",
-            "session_manager = microcosm_fastapi.database.session_manager:configure_session_manager",
+            "session_maker_async = microcosm_fastapi.database.session:configure_session_maker",
             "sqs_message_dispatcher_async = microcosm_fastapi.pubsub.dispatcher:SQSMessageDispatcherAsync",
             # Conventions
             "documentation_convention = microcosm_fastapi.factories.docs:configure_docs",
@@ -53,6 +53,11 @@ setup(
             "health_convention = microcosm_fastapi.conventions.health.route:configure_health",
             "config_convention = microcosm_fastapi.conventions.config.route:configure_config",
             "landing_convention = microcosm_fastapi.conventions.landing.route:configure_landing",
+            "audit_middleware = microcosm_fastapi.audit:configure_audit_middleware",
+            "request_context = microcosm_fastapi.context:configure_request_context",
+            "request_state_binder = microcosm_fastapi.request_state_binder:configure_request_state_binder",
+            "error_adapter = microcosm_fastapi.error_adapter:configure_error_adapter",
+            "exception_handler = microcosm_fastapi.exception_handler:configure_global_exception_handler",
         ],
     },
     tests_require=[

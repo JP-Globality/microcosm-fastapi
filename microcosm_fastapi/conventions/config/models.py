@@ -1,5 +1,8 @@
-from typing import Dict, Any
+from typing import Any, Dict
+from json import loads, dumps
+
 from microcosm.loaders.compose import PartitioningLoader
+
 
 class Config:
     """
@@ -22,7 +25,7 @@ class Config:
         def remove_nulls(dct):
             return {key: value for key, value in dct.items() if value is not None}
 
-            return loads(
-                dumps(self.graph.loader.config, skipkeys=True, default=lambda obj: None),
-                object_hook=remove_nulls,
-            )
+        return loads(
+            dumps(self.graph.loader.config, skipkeys=True, default=lambda obj: None),
+            object_hook=remove_nulls,
+        )

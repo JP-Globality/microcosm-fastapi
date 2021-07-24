@@ -1,3 +1,4 @@
+from http import HTTPStatus
 from typing import (
     Any,
     Callable,
@@ -6,9 +7,11 @@ from typing import (
 )
 from uuid import UUID
 
+from fastapi import Response
 from pydantic import BaseModel
 
 from microcosm_fastapi.naming import name_for
+from microcosm_fastapi.operations import Operation
 
 
 class CRUDStoreAdapter:
@@ -26,7 +29,8 @@ class CRUDStoreAdapter:
         return await self.store.create(model)
 
     async def _delete(self, identifier: UUID):
-        return await self.store.delete(identifier)
+        await self.store.delete(identifier)
+        return Response(status_code=HTTPStatus.NO_CONTENT.value)
 
     async def _replace(self, identifier: UUID, body: BaseModel):
         model = self.store.model_class(id=identifier, **body.dict())
@@ -35,7 +39,13 @@ class CRUDStoreAdapter:
     async def _retrieve(self, identifier: UUID):
         return await self.store.retrieve(identifier)
 
-    async def _search(self, offset: int, limit: int, **kwargs):
+    async def _search(
+        self,
+        offset: int,
+        limit: int,
+        link_provider: Callable = None,
+        **kwargs
+    ):
         """
         The search endpoint expects to be serialized by
         `microcosm_fastapi.conventions.schemas:SearchSchema`
@@ -48,10 +58,18 @@ class CRUDStoreAdapter:
         """
         items = await self.store.search(offset=offset, limit=limit, **kwargs)
         count = await self.store.count(**kwargs)
-        return dict(
+
+        payload = dict(
             items=items,
             count=count,
+            offset=offset,
+            limit=limit,
         )
+
+        if link_provider:
+            payload["_links"] = link_provider(count)
+
+        return payload
 
     async def _count(
         self,
@@ -64,4 +82,4 @@ class CRUDStoreAdapter:
 
     async def _update(self, identifier: UUID, body: BaseModel):
         model = self.store.model_class(id=identifier, **body.dict())
-        return self.store.update(identifier, model)
+        return await self.store.update(identifier, model)
