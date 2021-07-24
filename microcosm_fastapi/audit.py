@@ -7,18 +7,18 @@ from collections import namedtuple
 from distutils.util import strtobool
 from json import loads
 from json.decoder import JSONDecodeError
-from logging import DEBUG, getLogger
+from logging import getLogger
 import json
 from uuid import UUID
-
+from functools import partial
 from inflection import underscore
+
+from fastapi import Request
+
 from microcosm.api import defaults, typed
 from microcosm.metadata import Metadata
 from microcosm.config.types import boolean
 from microcosm_logging.timing import elapsed_time
-
-from fastapi import Request
-from functools import partial
 from microcosm_fastapi.errors import (
     extract_context,
     extract_error_message,
@@ -73,6 +73,40 @@ def should_skip_logging(request: Request):
 
     """
     return strtobool(request.headers.get("x-request-nolog", "false"))
+
+
+class RequestWrapper:
+    def __init__(self, request: Request):
+        self.request = request
+        self.method = request.method
+        self.url = request.url
+        self.query_params = request.query_params
+
+        self.state = request.state
+
+        self.json_module = json
+
+    @property
+    def content_length(self):
+        content_length = self.request.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                return max(0, int(content_length))
+            except (ValueError, TypeError):
+                pass
+
+        return None
+
+    async def get_json(
+            self,
+    ) -> Optional[Any]:
+
+        data = None
+        try:
+            data = await self.request.json()
+        except JSONDecodeError:
+            pass
+        return data
 
 
 class RequestInfo:
@@ -360,10 +394,9 @@ def configure_audit_middleware(graph):
     options = AuditOptions(
         include_request_body=graph.config.audit_middleware.include_request_body,
         include_response_body=graph.config.audit_middleware.include_response_body,
-        include_path=True,
-        # include_query_string=graph.config.audit_middleware.include_query_string,
-        include_query_string=True,
-        log_as_debug=True,
+        include_path=graph.config.audit_middleware.include_path,
+        include_query_string=graph.config.audit_middleware.include_query_string,
+        log_as_debug=graph.config.audit_middleware.log_as_debug,
     )
 
     graph.app.middleware("http")(create_audit_request(graph, options))

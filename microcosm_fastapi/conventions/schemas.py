@@ -22,7 +22,7 @@ class EnhancedBaseModel(BaseModel):
     ) -> Any:
         # The reason that we're overriding the Pydantic's BaseModel is so that
         # we can create our own Config parameters such as 'use_enum_names'
-        
+
         # 'use_enum_names' is bespoke pydantic config parameter used to indicate when
         # enum names (keys) should/shouldn't be used.
         # Because it is more common to want to use enum names, consumers of the enum
@@ -41,6 +41,7 @@ class EnhancedBaseModel(BaseModel):
             exclude_defaults,
             exclude_none,
         )
+
 
 class BaseSchema(EnhancedBaseModel):
     class Config:
