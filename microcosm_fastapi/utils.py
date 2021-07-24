@@ -3,7 +3,7 @@ from fastapi import Request
 
 def bind_to_request_state(request: Request, **kwargs):
     """
-    Takes in kwargs and binds them to request state
+    Takes in a set of kwargs and binds them to request state
 
     """
     for key, value in kwargs.items():

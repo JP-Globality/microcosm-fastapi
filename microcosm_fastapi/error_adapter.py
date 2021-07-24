@@ -8,7 +8,7 @@ from fastapi import Request
 from makefun import wraps
 
 import traceback
-from microcosm_fastapi.signature import extract_request_from_args, extract_request_from_kwargs, maybe_modify_signature
+from microcosm_fastapi.signature import maybe_modify_signature
 from microcosm_fastapi.utils import bind_to_request_state
 
 
@@ -27,7 +27,11 @@ class ErrorAdapter:
         return HTTPException(DEFAULT_SERVER_STATUS_CODE)
 
 
-async def process_func(func, request, *args, **kwargs):
+async def process_func(func, *args, already_contains_request_arg=True, **kwargs):
+    request = kwargs['request']
+    if not already_contains_request_arg:
+        del kwargs['request']
+
     bind_to_request_state(request, error=None, traceback=None)
     try:
         return await func(*args, **kwargs)
@@ -42,24 +46,25 @@ def configure_error_adapter(graph):
         new_sig, already_contains_request_arg = maybe_modify_signature(func)
 
         if already_contains_request_arg:
+            # If the func args/kwargs already contain request, then we leave it in
             @functools.wraps(func)
             async def wrapper(*args, **kwargs):
-                new_args, request = extract_request_from_args(args)
-
-                if request is None:
-                    new_kwargs, request = extract_request_from_kwargs(**kwargs)
-
-                return await process_func(func, request, new_args, new_kwargs)
+                return await process_func(
+                    func,
+                    *args,
+                    **kwargs
+                )
 
         else:
+            # If the func args/kwargs don't already contain request, then we remove it
             @wraps(func, new_sig=new_sig)
             async def wrapper(*args, **kwargs):
-                new_args, request = extract_request_from_args(args, remove_from_args=True)
-
-                if request is None:
-                    new_kwargs, request = extract_request_from_kwargs(**kwargs, remove_from_kwargs=True)
-
-                return await process_func(func, request, new_args, new_kwargs)
+                return await process_func(
+                    func,
+                    *args,
+                    already_contains_request_arg=already_contains_request_arg,
+                    **kwargs
+                )
 
         return wrapper
     return error_adapter

@@ -177,6 +177,7 @@ class RequestInfo:
         if self.status_code == 500:
             # something actually went wrong; investigate
             logger.warning(self.to_dict())
+
         else:
             # usually log at INFO; a raised exception can be an error or
             # expected behavior (e.g. 404)
