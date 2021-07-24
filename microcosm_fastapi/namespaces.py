@@ -6,6 +6,7 @@ from microcosm_fastapi.naming import name_for
 from microcosm_fastapi.operations import OperationInfo, OperationType, Operation
 
 
+
 @dataclass
 class Namespace:
     subject: Any
@@ -44,14 +45,6 @@ class Namespace:
             return "/" + self.path + operation.naming_convention(self.subject, self.object_)
         else:
             raise ValueError()
-
-    # @property
-    # def path_prefix(self):
-    #     return [
-    #         part
-    #         for part in [self.prefix, self.version, self.subject_name]
-    #         if part
-    #     ]
 
     @property
     def subject_name(self):
