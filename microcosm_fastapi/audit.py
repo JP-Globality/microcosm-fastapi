@@ -10,15 +10,15 @@ from json.decoder import JSONDecodeError
 from logging import getLogger
 import json
 from uuid import UUID
-
+from functools import partial
 from inflection import underscore
+
+from fastapi import Request
+
 from microcosm.api import defaults, typed
 from microcosm.metadata import Metadata
 from microcosm.config.types import boolean
 from microcosm_logging.timing import elapsed_time
-
-from fastapi import Request
-from functools import partial
 from microcosm_fastapi.errors import (
     extract_context,
     extract_error_message,

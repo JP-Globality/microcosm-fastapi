@@ -1,13 +1,10 @@
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
 from typing import Any
 import functools
+import traceback
 
-import functools
-from fastapi import Request
 from makefun import wraps
 
-import traceback
 from microcosm_fastapi.signature import maybe_modify_signature
 from microcosm_fastapi.utils import bind_to_request_state
 
