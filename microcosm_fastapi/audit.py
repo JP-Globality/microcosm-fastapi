@@ -31,6 +31,8 @@ DEFAULT_INCLUDE_REQUEST_BODY = 400
 DEFAULT_INCLUDE_RESPONSE_BODY = 400
 ERROR_MESSAGE_LIMIT = 2048
 
+AUDIT_LOGGER_NAME = "audit"
+
 
 AuditOptions = namedtuple("AuditOptions", [
     "include_request_body",
@@ -286,15 +288,8 @@ class RequestInfo:
         Extracting and setting operation and function name from request state
 
         """
-        try:
-            self.func = self.request_state.func_name
-        except AttributeError:
-            self.func = None
-
-        try:
-            self.operation = self.request_state.operation_name
-        except AttributeError:
-            self.operation = None
+        self.func = getattr(self.request_state, 'func_name', None)
+        self.operation = getattr(self.request_state, 'operation_name', None)
 
 
 async def parse_response(response):
@@ -324,18 +319,13 @@ def create_audit_request(graph, options):
         Audit request
 
         """
-        logger = getLogger("audit")
+        logger = getLogger(AUDIT_LOGGER_NAME)
 
         request_context = graph.request_context(request)
         request_wrapper = RequestWrapper(request)
         request_info = RequestInfo(options, request_wrapper, request_context, graph.metadata)
 
-        # Sets op and func name to None to initialise the state values
-        request_info.set_operation_and_func_name()
-        response = None
-
         await request_info.capture_request()
-
         try:
             # process the request
             with elapsed_time(request_info.timing):
@@ -345,19 +335,12 @@ def create_audit_request(graph, options):
                 # been executed
                 request_info.set_operation_and_func_name()
         except Exception as error:
-            # This shouldn't happen
+            # This shouldn't happen as fastapi seems to swallow HTTPExceptionErrors
             request_info.set_operation_and_func_name()
             request_info.capture_error(error)
             raise
         else:
-            # This is where we deal with the errors as fastapi seems to swallow HTTPExceptionErrors
-            # so the except part of the clause above doesn't run
-            request_error = None
-            try:
-                request_error = request.state.error
-            except AttributeError:
-                pass
-
+            request_error = getattr(request.state, 'error', None)
             if request_error is not None:
                 request_info.capture_error(request_error)
             else:
