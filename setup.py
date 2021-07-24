@@ -35,6 +35,7 @@ setup(
         "microcosm-pubsub",
         "microcosm-postgres[encryption]>=2.0.0",
         "asyncpg",
+        "makefun",
     ],
     setup_requires=[
         "nose>=1.3.7",
