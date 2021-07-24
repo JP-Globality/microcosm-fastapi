@@ -114,7 +114,7 @@ class RequestInfo:
     Capture of key information for requests.
 
     """
-    def __init__(self, options: AuditOptions, request: RequestWrapper, request_context: Dict[str, Any], app_metadata: Metadata):
+    def __init__(self, options: AuditOptions, request: Request, request_context: Dict[str, Any], app_metadata: Metadata):
         self.options = options
         self.app_metadata = app_metadata
         self.operation = None
@@ -198,18 +198,18 @@ class RequestInfo:
             return
 
         if (
-                self.request.content_length and
+                self.content_length and
                 self.options.include_request_body is not True and
-                self.request.content_length >= self.options.include_request_body
+                self.content_length >= self.options.include_request_body
         ):
             # don't capture request body if it's too large
             return
 
-        if not await self.request.get_json():
+        if not await self.get_json():
             # only capture request body if json
             return
 
-        self.request_body = await self.request.get_json()
+        self.request_body = await self.get_json()
 
     async def capture_response(self, response):
         self.success = True
@@ -291,6 +291,28 @@ class RequestInfo:
         self.func = getattr(self.request_state, 'func_name', None)
         self.operation = getattr(self.request_state, 'operation_name', None)
 
+    @property
+    def content_length(self):
+        content_length = self.request.headers.get("Content-Length")
+        if content_length is not None:
+            try:
+                return max(0, int(content_length))
+            except (ValueError, TypeError):
+                pass
+
+        return None
+
+    async def get_json(
+            self,
+    ) -> Optional[Any]:
+
+        data = None
+        try:
+            data = await self.request.json()
+        except JSONDecodeError:
+            pass
+        return data
+
 
 async def parse_response(response):
     """
@@ -322,8 +344,8 @@ def create_audit_request(graph, options):
         logger = getLogger(AUDIT_LOGGER_NAME)
 
         request_context = graph.request_context(request)
-        request_wrapper = RequestWrapper(request)
-        request_info = RequestInfo(options, request_wrapper, request_context, graph.metadata)
+        # request_wrapper = RequestWrapper(request)
+        request_info = RequestInfo(options, request, request_context, graph.metadata)
 
         await request_info.capture_request()
         try:
