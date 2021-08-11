@@ -35,7 +35,6 @@ setup(
         "microcosm-pubsub",
         "microcosm-postgres[encryption]>=2.0.0",
         "asyncpg",
-        "makefun",
     ],
     setup_requires=[
         "nose>=1.3.7",
@@ -56,9 +55,7 @@ setup(
             "landing_convention = microcosm_fastapi.conventions.landing.route:configure_landing",
             "audit_middleware = microcosm_fastapi.audit:configure_audit_middleware",
             "request_context = microcosm_fastapi.context:configure_request_context",
-            "request_state_binder = microcosm_fastapi.request_state_binder:configure_request_state_binder",
-            "error_adapter = microcosm_fastapi.error_adapter:configure_error_adapter",
-            "exception_handler = microcosm_fastapi.exception_handler:configure_global_exception_handler",
+            "global_exception_handler = microcosm_fastapi.exception_handler:configure_global_exception_handler",
             "logging_data_map = microcosm_fastapi.logging_data_map:configure_logging_data_map"
         ],
     },
