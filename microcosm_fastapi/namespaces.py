@@ -6,7 +6,6 @@ from microcosm_fastapi.naming import name_for
 from microcosm_fastapi.operations import OperationInfo, OperationType, Operation
 
 
-
 @dataclass
 class Namespace:
     subject: Any
@@ -35,7 +34,7 @@ class Namespace:
         into a convention-based URL that can be called on the server.
 
         (GET, NODE_PATTERN) -> /api/v1/pizza
-        (GET, EDGE_PATTERN) -> /api/v1/pizza/pizza_id
+        (GET, EDGE_PATTERN) -> /api/v1/pizza/pizza_id/order
 
         """
         if operation.pattern == OperationType.NODE_PATTERN:
@@ -52,7 +51,10 @@ class Namespace:
 
     @property
     def object_name(self):
-        return name_for(self.object_)
+        if self.object_ is None:
+            return None
+        else:
+            return name_for(self.object_)
 
     def extract_hostname_from_request(self, request: Request):
         url = str(request.url)
